@@ -304,11 +304,13 @@ td.empty{text-align:left;white-space:normal;color:var(--muted);padding:12px 2px}
       <p class="hint">연습곡에서 가장 짧은 음표에 맞추세요. 친 음은 가장 가까운 칸에 붙여 채점하고, 안 친 칸(쉼표, 긴 음)은 감점하지 않아요.</p>
     </div>
     <div class="field">
-      <span class="label">길이</span>
-      <div class="seg" id="segBars" role="radiogroup" aria-label="길이">
-        <button type="button" role="radio" data-v="4">4마디</button>
-        <button type="button" role="radio" data-v="8">8마디</button>
-        <button type="button" role="radio" data-v="16">16마디</button>
+      <span class="label">길이 (마디)</span>
+      <div class="seg" id="segBars" role="radiogroup" aria-label="길이(마디)">
+        <button type="button" role="radio" data-v="4">4</button>
+        <button type="button" role="radio" data-v="8">8</button>
+        <button type="button" role="radio" data-v="12">12</button>
+        <button type="button" role="radio" data-v="16">16</button>
+        <button type="button" role="radio" data-v="32">32</button>
       </div>
       <p class="hint" id="gridInfo"></p>
     </div>
@@ -791,7 +793,7 @@ registerProcessor('onset', OnsetProc);
     bpm: clampInt(saved.bpm, 30, 200, 60),
     beats: [2, 3, 4].indexOf(saved.beats) >= 0 ? saved.beats : 4,
     grid: [1, 2, 3, 4].indexOf(saved.grid) >= 0 ? saved.grid : 1,
-    bars: [4, 8, 16].indexOf(saved.bars) >= 0 ? saved.bars : 8,
+    bars: [4, 8, 12, 16, 32].indexOf(saved.bars) >= 0 ? saved.bars : 8,
     mute: !!saved.mute,
     sens: clampInt(saved.sens, 1, 10, 6),
     vol: typeof saved.vol === 'number' ? Math.min(1, Math.max(0.1, saved.vol)) : 0.8
@@ -1282,7 +1284,7 @@ registerProcessor('onset', OnsetProc);
       }
     }
     g.textAlign = 'center'; g.textBaseline = 'top';
-    var every = r.bars > 8 ? 2 : 1;
+    var every = r.bars > 16 ? 4 : r.bars > 8 ? 2 : 1;
     for (b = 0; b <= r.bars; b++){
       x = Math.round(X(b * barDur)) + 0.5;
       g.strokeStyle = tok('--grid');
