@@ -113,6 +113,8 @@ input[type=range]{width:100%;margin:0;accent-color:var(--accent);height:28px}
 .readout[data-cls="near"] .v{color:var(--d-near)}
 .readout[data-cls="off"] .v{color:var(--d-off)}
 .readout .u{color:var(--d-muted);font-size:14px}
+.note-line{text-align:center;font-size:15px;color:var(--d-muted);min-height:28px;margin-top:4px;display:flex;align-items:baseline;justify-content:center;gap:6px}
+.note-line b{font-family:var(--font-num);font-weight:600;color:var(--d-fg);font-size:22px}
 .scale{position:relative;height:46px;border-bottom:1px solid var(--d-muted)}
 .zone{position:absolute;left:37.5%;width:25%;top:0;bottom:0;background:var(--d-zone);border-radius:6px 6px 0 0}
 .tick{position:absolute;bottom:0;width:1px;height:9px;background:var(--d-muted);transform:translateX(-.5px)}
@@ -184,6 +186,21 @@ canvas{display:block;width:100%}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:50%}
 .legend i.sq{border-radius:2px;background:var(--mute-fill);outline:1px solid var(--line)}
 .legend i.dash{width:14px;height:0;border-radius:0;border-top:2px dashed var(--muted)}
+.notes summary{cursor:pointer;font-weight:700;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.notes-hint{margin-top:6px}
+.bar-list{display:flex;flex-direction:column;margin-top:8px}
+.bar-row{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;padding:8px 0;border-top:1px solid var(--line);align-items:start}
+.bar-no{font-family:var(--font-num);font-size:14px;font-weight:600;padding-top:2px}
+.bar-no small{display:block;font-family:var(--font-body);font-weight:400;font-size:10.5px;color:var(--muted);line-height:1.3}
+.chips{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+.chip{display:inline-flex;align-items:baseline;gap:5px;padding:3px 8px;border-radius:7px;background:var(--bg);font-size:13px;white-space:nowrap}
+.chip .pos{color:var(--muted);font-family:var(--font-num);font-size:11px}
+.chip .nm{font-family:var(--font-num);font-weight:600}
+.chip .ko{color:var(--muted);font-size:11.5px}
+.chip .ms{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.chip .ms[data-cls="ok"]{color:var(--ok)}
+.chip .ms[data-cls="near"]{color:var(--near)}
+.chip .ms[data-cls="off"]{color:var(--off)}
 
 /* 기록 */
 .tbl-wrap{overflow-x:auto;margin-inline:-2px}
@@ -244,7 +261,10 @@ td.empty{text-align:left;white-space:normal;color:var(--muted);padding:12px 2px}
       <button type="button" class="step" id="bpmUp" aria-label="템포 1 올리기">+</button>
     </div>
     <input type="range" id="bpm" min="30" max="200" step="1" value="60" aria-label="템포">
-    <div class="readout" id="readout"><span class="v" id="lastErr">--</span><span class="u">ms</span></div>
+    <div>
+      <div class="readout" id="readout"><span class="v" id="lastErr">--</span><span class="u">ms</span></div>
+      <div class="note-line" id="noteLine">친 음 이름이 여기 떠요</div>
+    </div>
     <div>
       <div class="scale" id="scale">
         <div class="zone"></div>
@@ -332,6 +352,11 @@ td.empty{text-align:left;white-space:normal;color:var(--muted);padding:12px 2px}
       <span id="legMute"><i class="sq"></i>클릭 없는 마디</span>
       <span>위 = 늦게, 아래 = 일찍, 아래 숫자 = 마디</span>
     </div>
+    <details class="notes" open>
+      <summary>친 음 목록 <span class="hint" id="noteSum"></span></summary>
+      <p class="hint notes-hint">마디마다 박 위치(1 &amp; 2 &amp;…), 음 이름, 오차(ms) 순서예요. 화음은 그중 한 음만 잡힐 수 있어요.</p>
+      <div class="bar-list" id="barList"></div>
+    </details>
   </section>
 
   <section class="panel" aria-labelledby="histH">
@@ -360,6 +385,7 @@ td.empty{text-align:left;white-space:normal;color:var(--muted);padding:12px 2px}
       <li>폰은 사운드홀에서 30~60cm 떨어진 곳에, 조용한 방에서.</li>
       <li>클릭은 높은 삐 소리이고, 채점은 기타 음역(약 70~1500Hz)만 봐요. 그래서 스피커로 클릭을 틀어도 클릭이 친 음으로 잡히지 않아요. 연주 안 할 때 입력 막대가 초록으로 깜빡이면 감도를 내리세요.</li>
       <li>울리는 큰 음 위에 아주 작게 친 음은 놓칠 수 있어요. 놓친 칸은 감점하지 않으니, 결과의 "인식한 음" 개수를 같이 보세요.</li>
+      <li>음 이름은 한 음씩 칠 때 잘 맞아요. 화음은 그중 한 음만 잡히고, 소리가 너무 작으면 ?로 나와요. 대기 중에도 한 음 쳐 보면 이름이 떠서 마이크가 잘 듣는지 확인할 수 있어요.</li>
       <li>숫자 보는 법: +는 박보다 늦게 친 것, −는 일찍 친 것. 흔들림은 음마다 오차가 얼마나 들쭉날쭉한지(표준편차)예요.</li>
       <li>템포를 낮춰서 정박률 80% 이상이 나오면 5~10 BPM씩 올리는 식으로 써 보세요.</li>
     </ul>
@@ -392,23 +418,25 @@ var JBCore = (function(){
     if (b < 176) return 'Vivace';
     return 'Presto';
   }
-  // onsets: 지연 보정이 끝난 시각(초). r: {testStart, interval, nGrid, bpb, sub, mute}
+  // onsets: 지연 보정이 끝난 시각(초) 또는 {t, midi}. r: {testStart, interval, nGrid, bpb, sub, mute}
   function analyze(onsets, r){
     var best = new Map(), extra = 0;
     for (var i = 0; i < onsets.length; i++){
-      var t = onsets[i];
+      var o = onsets[i];
+      var t = typeof o === 'number' ? o : o.t;
+      var midi = typeof o === 'number' || o.midi == null ? null : o.midi;
       var idx = Math.round((t - r.testStart) / r.interval);
       if (idx < 0 || idx >= r.nGrid) continue;
       var e = t - (r.testStart + idx * r.interval);
       if (best.has(idx)){
         extra++;
-        if (Math.abs(e) < Math.abs(best.get(idx))) best.set(idx, e);
-      } else best.set(idx, e);
+        if (Math.abs(e) < Math.abs(best.get(idx).e)) best.set(idx, { e: e, midi: midi });
+      } else best.set(idx, { e: e, midi: midi });
     }
     var perBar = r.bpb * r.sub;
     var hits = Array.from(best.entries()).sort(function(a, b){ return a[0] - b[0]; }).map(function(p){
-      var ms = p[1] * 1000, bar = Math.floor(p[0] / perBar);
-      return { idx: p[0], ms: ms, bar: bar, cls: classOf(ms), muted: isMutedBar(bar, r.mute) };
+      var ms = p[1].e * 1000, bar = Math.floor(p[0] / perBar);
+      return { idx: p[0], ms: ms, bar: bar, cls: classOf(ms), muted: isMutedBar(bar, r.mute), midi: p[1].midi };
     });
     var res = { hits: hits, n: hits.length, nGrid: r.nGrid, extra: extra };
     if (hits.length < 3){ res.insufficient = true; return res; }
@@ -462,42 +490,92 @@ var JBCore = (function(){
     var spb = 60 / bpm, interval = spb / sub, nGrid = bars * bpb * sub;
     var r = { testStart: 0, interval: interval, nGrid: nGrid, bpb: bpb, sub: sub, bars: bars, mute: mute, bpm: bpm, spb: spb };
     var onsets = [], rush = 0;
+    var tune = [55, 57, 59, 60, 62, 60, 59, 57, 55, 59, 62, 67, 66, 64, 62, 60];
     for (var j = 0; j < nGrid; j++){
       var bar = Math.floor(j / (bpb * sub));
       if (j % 8 === 7) continue;
       rush = isMutedBar(bar, mute) ? rush - 3.2 : rush * 0.4;
       var noise = (rnd() + rnd() + rnd() - 1.5) * 16;
-      onsets.push(j * interval + (11 + rush + noise) / 1000);
+      onsets.push({ t: j * interval + (11 + rush + noise) / 1000, midi: j === 21 ? null : tune[j % tune.length] });
     }
     return { r: r, onsets: onsets };
   }
-  return { classOf: classOf, tendencyCls: tendencyCls, sdCls: sdCls, okCls: okCls, isMutedBar: isMutedBar, fmtSigned: fmtSigned, stats: stats, tempoName: tempoName, analyze: analyze, verdict: verdict, exampleData: exampleData };
+  var NOTE_EN = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  var NOTE_KO = ['도', '도#', '레', '레#', '미', '파', '파#', '솔', '솔#', '라', '라#', '시'];
+  function noteName(m){
+    if (m == null) return null;
+    return { en: NOTE_EN[m % 12] + (Math.floor(m / 12) - 1), ko: NOTE_KO[m % 12] };
+  }
+  // 마디 안의 위치를 세는 말로: 4분 1 2 3 4, 8분 1 & 2 &, 셋잇단 1 & a, 16분 1 e & a
+  var SYL = { 1: [''], 2: ['', '&'], 3: ['', '&', 'a'], 4: ['', 'e', '&', 'a'] };
+  function posLabel(idx, bpb, sub){
+    var j = idx % (bpb * sub), s = j % sub;
+    return s === 0 ? String(Math.floor(j / sub) + 1) : SYL[sub][s];
+  }
+  return { classOf: classOf, tendencyCls: tendencyCls, sdCls: sdCls, okCls: okCls, isMutedBar: isMutedBar, fmtSigned: fmtSigned, stats: stats, tempoName: tempoName, analyze: analyze, verdict: verdict, exampleData: exampleData, noteName: noteName, posLabel: posLabel };
 })();
 </script>
 
 <script id="worklet" type="text/plain">
 // 스펙트럼 플럭스 타격 감지. 1024점 Hann 창, 128샘플(약 2.7ms)마다 FFT.
 // 대역 0: 70-1500Hz(기타), 대역 1: 3-6.5kHz(삐 소리, 보정용). 새 음은 자기 주파수 칸에서 에너지가 튀므로 울리는 다른 음과 섞여도 잡힌다.
+// 기타 타격이 확정되면, 타격 직전 85ms와 직후 85ms의 4096점 스펙트럼 차이(새로 생긴 에너지)에서 배음 합이 가장 큰 음을 고른다.
+function makeFFT(N){
+  const lg = Math.log2(N), rev = new Uint16Array(N), cs = new Float32Array(N / 2), sn = new Float32Array(N / 2);
+  for (let i = 0; i < N; i++){ let r = 0, x = i; for (let b = 0; b < lg; b++){ r = (r << 1) | (x & 1); x >>= 1; } rev[i] = r; }
+  for (let i = 0; i < N / 2; i++){ cs[i] = Math.cos(-2 * Math.PI * i / N); sn[i] = Math.sin(-2 * Math.PI * i / N); }
+  return function(re, im){
+    for (let i = 0; i < N; i++){ const j = rev[i]; if (j > i){ let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+    for (let size = 2; size <= N; size <<= 1){
+      const half = size >> 1, step = N / size;
+      for (let i = 0; i < N; i += size){
+        for (let j = 0; j < half; j++){
+          const k = j * step, wr = cs[k], wi = sn[k], a = i + j, b = a + half;
+          const tr = re[b] * wr - im[b] * wi, ti = re[b] * wi + im[b] * wr;
+          re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+        }
+      }
+    }
+  };
+}
+function hann(N){ const w = new Float32Array(N); let s = 0; for (let i = 0; i < N; i++){ w[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N); s += w[i]; } return { w: w, sum: s }; }
+const NOTE_LO = 40, NOTE_HI = 84;           // E2 ~ C6 (클래식 기타 음역)
+const HARM = [1, 0.9, 0.8, 0.7, 0.6, 0.5];  // 배음 가중치
+
 class OnsetProc extends AudioWorkletProcessor {
   constructor(){
     super();
     const N = 1024;
     this.N = N; this.sr = sampleRate;
     this.buf = new Float32Array(N); this.re = new Float32Array(N); this.im = new Float32Array(N);
-    this.win = new Float32Array(N);
-    let ws = 0;
-    for (let i = 0; i < N; i++){ this.win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N); ws += this.win[i]; }
-    this.norm = 2 / ws;
-    const lg = Math.log2(N);
-    this.rev = new Uint16Array(N);
-    for (let i = 0; i < N; i++){ let r = 0, x = i; for (let b = 0; b < lg; b++){ r = (r << 1) | (x & 1); x >>= 1; } this.rev[i] = r; }
-    this.cs = new Float32Array(N / 2); this.sn = new Float32Array(N / 2);
-    for (let i = 0; i < N / 2; i++){ this.cs[i] = Math.cos(-2 * Math.PI * i / N); this.sn[i] = Math.sin(-2 * Math.PI * i / N); }
+    const hw = hann(N); this.win = hw.w; this.norm = 2 / hw.sum;
+    this.fft = makeFFT(N);
     this.C = 1000; this.mu = 3; this.kAvg = 0.03;
     this.bands = [
       this.mkBand(70, 1500, { delta: 0.05, lambda: 1.0, confirm: 1.3, refr: 0.05 }),
       this.mkBand(3000, 6500, { delta: 0.06, lambda: 1.0, confirm: 1.3, refr: 0.2 })
     ];
+    // 음 판정
+    const PN = 4096;
+    this.PN = PN; this.pfft = makeFFT(PN); this.pwin = hann(PN).w;
+    this.pa = new Float32Array(PN); this.pai = new Float32Array(PN);
+    this.pb = new Float32Array(PN); this.pbi = new Float32Array(PN);
+    const bw = this.sr / PN;
+    this.kLo = Math.ceil(70 / bw);
+    this.kMax = Math.min(PN / 2 - 1, Math.ceil(7000 / bw));
+    this.D = new Float32Array(this.kMax + 1);
+    this.cands = [];
+    for (let m = NOTE_LO; m <= NOTE_HI; m++){
+      const f0 = 440 * Math.pow(2, (m - 69) / 12), hs = [];
+      for (let h = 1; h <= HARM.length; h++){
+        const f = f0 * h;
+        const k0 = Math.max(1, Math.floor(f * 0.9856 / bw)), k1 = Math.min(this.kMax, Math.ceil(f * 1.0146 / bw));
+        hs.push(k0, k1);
+      }
+      this.cands.push({ m: m, hs: hs });
+    }
+    this.RN = 16384; this.ring = new Float32Array(this.RN); this.jobs = [];
+    this.PRE_GAP = 600; this.POST_SKIP = 200;
     this.hops = 0; this.peak = 0; this.blocks = 0;
     this.port.onmessage = (e) => {
       const d = e.data;
@@ -514,24 +592,10 @@ class OnsetProc extends AudioWorkletProcessor {
     for (let i = 0; i <= this.mu; i++) hist.push(new Float32Array(len));
     return { k0, k1, len, hist, head: 0, avg: 0, armed: true, last: -1e9, cand: null, c };
   }
-  fft(){
-    const N = this.N, re = this.re, im = this.im, rev = this.rev, cs = this.cs, sn = this.sn;
-    for (let i = 0; i < N; i++){ const j = rev[i]; if (j > i){ let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
-    for (let size = 2; size <= N; size <<= 1){
-      const half = size >> 1, step = N / size;
-      for (let i = 0; i < N; i += size){
-        for (let j = 0; j < half; j++){
-          const k = j * step, wr = cs[k], wi = sn[k], a = i + j, b = a + half;
-          const tr = re[b] * wr - im[b] * wi, ti = re[b] * wi + im[b] * wr;
-          re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
-        }
-      }
-    }
-  }
   analyze(tEnd, detect){
     const N = this.N, re = this.re, im = this.im, buf = this.buf, w = this.win;
     for (let i = 0; i < N; i++){ re[i] = buf[i] * w[i]; im[i] = 0; }
-    this.fft();
+    this.fft(re, im);
     for (let k = 0; k < 2; k++){
       const b = this.bands[k], c = b.c;
       const cur = b.hist[b.head], old = b.hist[(b.head + 1) % (this.mu + 1)];
@@ -558,6 +622,7 @@ class OnsetProc extends AudioWorkletProcessor {
           if (b.cand.max > b.cand.thr * c.confirm){
             this.port.postMessage({ t: 'on', k: k, time: b.cand.t, str: b.cand.max });
             b.last = b.cand.t;
+            if (k === 0) this.jobs.push({ s: Math.round(b.cand.t * this.sr), time: b.cand.t });
           }
           b.cand = null; b.armed = false;
         }
@@ -568,15 +633,52 @@ class OnsetProc extends AudioWorkletProcessor {
       }
     }
   }
+  pitch(job){
+    const PN = this.PN, mask = this.RN - 1, ring = this.ring, w = this.pwin;
+    const a = this.pa, ai = this.pai, b = this.pb, bi = this.pbi, D = this.D;
+    const s0 = job.s - this.PRE_GAP - PN, s1 = job.s + this.POST_SKIP;
+    for (let i = 0; i < PN; i++){
+      a[i] = ring[(s0 + i) & mask] * w[i]; ai[i] = 0;
+      b[i] = ring[(s1 + i) & mask] * w[i]; bi[i] = 0;
+    }
+    this.pfft(a, ai); this.pfft(b, bi);
+    let tot = 0, fresh = 0;
+    for (let k = 1; k <= this.kMax; k++){
+      const ma = Math.sqrt(a[k] * a[k] + ai[k] * ai[k]), mb = Math.sqrt(b[k] * b[k] + bi[k] * bi[k]);
+      const d = mb - ma;
+      D[k] = d > 0 ? d : 0;
+      if (k >= this.kLo){ tot += mb; fresh += D[k]; }
+    }
+    let best = null, bs = 0;
+    for (let c = 0; c < this.cands.length; c++){
+      const hs = this.cands[c].hs;
+      let s = 0;
+      for (let h = 0; h < HARM.length; h++){
+        let mx = 0;
+        for (let k = hs[2 * h]; k <= hs[2 * h + 1]; k++) if (D[k] > mx) mx = D[k];
+        s += HARM[h] * mx;
+      }
+      if (s > bs){ bs = s; best = this.cands[c].m; }
+    }
+    const ratio = tot > 0 ? fresh / tot : 0;
+    const ok = best !== null && ratio > 0.12 && bs > 0.5;
+    this.port.postMessage({ t: 'pitch', time: job.time, midi: ok ? best : null });
+  }
   process(inputs){
     const ch = inputs[0] && inputs[0][0];
     if (ch && ch.length){
-      const n = ch.length;
-      for (let i = 0; i < n; i++){ const a = ch[i] < 0 ? -ch[i] : ch[i]; if (a > this.peak) this.peak = a; }
+      const n = ch.length, fr = currentFrame, mask = this.RN - 1;
+      for (let i = 0; i < n; i++){
+        const x = ch[i], a = x < 0 ? -x : x;
+        if (a > this.peak) this.peak = a;
+        this.ring[(fr + i) & mask] = x;
+      }
       this.buf.copyWithin(0, n);
       this.buf.set(ch, this.N - n);
       this.hops++;
-      this.analyze((currentFrame + n) / this.sr, this.hops > 16);
+      this.analyze((fr + n) / this.sr, this.hops > 16);
+      const end = fr + n;
+      while (this.jobs.length && end >= this.jobs[0].s + this.POST_SKIP + this.PN) this.pitch(this.jobs.shift());
     }
     if (++this.blocks >= 12){
       this.port.postMessage({ t: 'lv', l: this.peak });
@@ -623,6 +725,7 @@ registerProcessor('onset', OnsetProc);
   var run = null, cal = null, wake = null;
   var level = 0, levelShown = 0, hitAt = 0, lvlTxtAt = 0;
   var trail = [];
+  var lastHitRaw = null;
   var chartData = null;
 
   // ---------- 감지 설정
@@ -783,10 +886,16 @@ registerProcessor('onset', OnsetProc);
       if (d.l > level) level = d.l;
       return;
     }
+    if (d.t === 'pitch'){
+      if (run && run.byRaw){ var po = run.byRaw.get(d.time); if (po) po.midi = d.midi; }
+      if (d.time === lastHitRaw) showNote(d.midi);
+      return;
+    }
     if (d.t !== 'on') return;
     if (mode === 'cal' && cal){ if (d.k === 1) cal.on.push(d.time); else cal.low.push(d.time); return; }
     if (d.k !== 0) return;
     hitAt = performance.now();
+    lastHitRaw = d.time;
     if (mode === 'play' && run) onPlayOnset(d.time);
   }
 
@@ -846,15 +955,17 @@ registerProcessor('onset', OnsetProc);
     }
     var testStart = t0 + bpb * spb, nGrid = bars * bpb * sub;
     run = { t0: t0, spb: spb, bpb: bpb, sub: sub, bars: bars, interval: interval, testStart: testStart, nGrid: nGrid,
-            gridLast: testStart + (nGrid - 1) * interval, totalBeats: totalBeats, lat: calib.lat, mute: S.mute, bpm: S.bpm, onsets: [] };
-    mode = 'play'; trail = []; renderTrail(); setReadout(null);
+            gridLast: testStart + (nGrid - 1) * interval, totalBeats: totalBeats, lat: calib.lat, mute: S.mute, bpm: S.bpm, onsets: [], byRaw: new Map() };
+    mode = 'play'; trail = []; renderTrail(); setReadout(null); showNote(undefined);
     lockUI(); keepAwake(true);
     setStatus('카운트인 1마디 뒤부터 채점해요.');
   }
   function onPlayOnset(time){
     var t = time - run.lat;
     if (t < run.testStart - run.interval / 2 || t > run.gridLast + run.interval / 2) return;
-    run.onsets.push(t);
+    var o = { t: t, midi: null };
+    run.onsets.push(o);
+    run.byRaw.set(time, o);
     var idx = Math.round((t - run.testStart) / run.interval);
     setReadout((t - (run.testStart + idx * run.interval)) * 1000);
   }
@@ -893,7 +1004,7 @@ registerProcessor('onset', OnsetProc);
 
   setInterval(function(){
     if (!actx) return;
-    if (mode === 'play' && run && actx.currentTime > run.gridLast + run.interval / 2 + run.lat + 0.15) finishRun();
+    if (mode === 'play' && run && actx.currentTime > run.gridLast + run.interval / 2 + run.lat + 0.3) finishRun();
     else if (mode === 'cal' && cal && actx.currentTime > cal.end) finishCal();
   }, 50);
 
@@ -908,6 +1019,14 @@ registerProcessor('onset', OnsetProc);
     nd.hidden = false; nd.dataset.cls = cls; nd.style.left = pct(ms) + '%';
     trail.unshift({ ms: ms, cls: cls }); if (trail.length > 6) trail.pop();
     renderTrail();
+  }
+  function showNote(m){
+    var el = $('#noteLine'); el.textContent = '';
+    if (m === undefined){ el.textContent = '음 이름 듣는 중'; return; }
+    var nn = C.noteName(m);
+    if (!nn){ el.textContent = '음 이름 판정 못 함'; return; }
+    var b = document.createElement('b'); b.textContent = nn.en;
+    el.appendChild(b); el.appendChild(document.createTextNode(nn.ko));
   }
   function renderTrail(){
     var el = $('#trail'); el.textContent = '';
@@ -989,6 +1108,34 @@ registerProcessor('onset', OnsetProc);
     $('#legMute').hidden = !r.mute;
     $('#legTrend').hidden = !!r.mute;
     drawChart();
+    renderNotes(res, r);
+  }
+  function renderNotes(res, r){
+    var box = $('#barList'); box.textContent = '';
+    var named = res.hits.filter(function(h){ return h.midi != null; }).length;
+    $('#noteSum').textContent = '음 이름 인식 ' + named + '/' + res.n;
+    var byBar = [];
+    res.hits.forEach(function(h){ (byBar[h.bar] = byBar[h.bar] || []).push(h); });
+    for (var b = 0; b < r.bars; b++){
+      var row = document.createElement('div'); row.className = 'bar-row';
+      var no = document.createElement('div'); no.className = 'bar-no'; no.textContent = String(b + 1);
+      if (C.isMutedBar(b, r.mute)){ var sm = document.createElement('small'); sm.textContent = '무음'; no.appendChild(sm); }
+      var chips = document.createElement('div'); chips.className = 'chips';
+      var hs = byBar[b] || [];
+      if (!hs.length){ var em = document.createElement('span'); em.className = 'hint'; em.textContent = '친 음 없음'; chips.appendChild(em); }
+      hs.forEach(function(h){
+        var c = document.createElement('span'); c.className = 'chip';
+        var pos = document.createElement('span'); pos.className = 'pos'; pos.textContent = C.posLabel(h.idx, r.bpb, r.sub);
+        var nn = C.noteName(h.midi);
+        var nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = nn ? nn.en : '?';
+        var ko = document.createElement('span'); ko.className = 'ko'; ko.textContent = nn ? nn.ko : '';
+        var ms = document.createElement('span'); ms.className = 'ms'; ms.dataset.cls = h.cls; ms.textContent = C.fmtSigned(h.ms);
+        c.appendChild(pos); c.appendChild(nm); if (nn) c.appendChild(ko); c.appendChild(ms);
+        chips.appendChild(c);
+      });
+      row.appendChild(no); row.appendChild(chips);
+      box.appendChild(row);
+    }
   }
   function drawChart(){
     if (!chartData) return;
