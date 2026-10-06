@@ -383,7 +383,7 @@ td.empty{text-align:left;white-space:normal;color:var(--muted);padding:12px 2px}
       <li>클릭은 폰 스피커나 유선 이어폰으로 들으세요. 블루투스 이어폰은 지연이 들쭉날쭉하고, 마이크가 이어폰 쪽으로 바뀌기도 해서 측정이 틀어져요.</li>
       <li>출력(스피커/이어폰)이나 음량을 바꾸면 다시 보정하세요.</li>
       <li>폰은 사운드홀에서 30~60cm 떨어진 곳에, 조용한 방에서.</li>
-      <li>클릭은 높은 삐 소리이고, 채점은 기타 음역(약 70~1500Hz)만 봐요. 그래서 스피커로 클릭을 틀어도 클릭이 친 음으로 잡히지 않아요. 연주 안 할 때 입력 막대가 초록으로 깜빡이면 감도를 내리세요.</li>
+      <li>스피커로 튼 클릭은 폰 몸체를 울려서 기타 음역에도 조금 섞여 들어와요. 보정할 때 그 흔적을 배워 두고 클릭 순간엔 그만큼 빼고 들어요. 그래도 클릭이 음으로 잡히면 지금 음량 그대로 다시 보정하거나 감도를 내리세요.</li>
       <li>울리는 큰 음 위에 아주 작게 친 음은 놓칠 수 있어요. 놓친 칸은 감점하지 않으니, 결과의 "인식한 음" 개수를 같이 보세요.</li>
       <li>음 이름은 한 음씩 칠 때 잘 맞아요. 화음은 그중 한 음만 잡히고, 소리가 너무 작으면 ?로 나와요. 대기 중에도 한 음 쳐 보면 이름이 떠서 마이크가 잘 듣는지 확인할 수 있어요.</li>
       <li>숫자 보는 법: +는 박보다 늦게 친 것, −는 일찍 친 것. 흔들림은 음마다 오차가 얼마나 들쭉날쭉한지(표준편차)예요.</li>
@@ -520,6 +520,8 @@ var JBCore = (function(){
 // 스펙트럼 플럭스 타격 감지. 1024점 Hann 창, 128샘플(약 2.7ms)마다 FFT.
 // 대역 0: 70-1500Hz(기타), 대역 1: 3-6.5kHz(삐 소리, 보정용). 새 음은 자기 주파수 칸에서 에너지가 튀므로 울리는 다른 음과 섞여도 잡힌다.
 // 기타 타격이 확정되면, 타격 직전 85ms와 직후 85ms의 4096점 스펙트럼 차이(새로 생긴 에너지)에서 배음 합이 가장 큰 음을 고른다.
+// 스피커 클릭이 기타 대역에 남기는 흔적(폰 몸체 울림 등)은 보정 때 '클릭 뒤 몇 ms에 어느 주파수 칸이 얼마나' 커지는지 배워 두고,
+// 측정 중 클릭이 들어오는 순간(-16~+80ms)에만 그 크기를 빼고(로그 변환 전, 선형 크기에서) 듣는다.
 function makeFFT(N){
   const lg = Math.log2(N), rev = new Uint16Array(N), cs = new Float32Array(N / 2), sn = new Float32Array(N / 2);
   for (let i = 0; i < N; i++){ let r = 0, x = i; for (let b = 0; b < lg; b++){ r = (r << 1) | (x & 1); x >>= 1; } rev[i] = r; }
@@ -552,7 +554,7 @@ class OnsetProc extends AudioWorkletProcessor {
     this.fft = makeFFT(N);
     this.C = 1000; this.mu = 3; this.kAvg = 0.03;
     this.bands = [
-      this.mkBand(70, 1500, { delta: 0.05, lambda: 1.0, confirm: 1.3, refr: 0.05 }),
+      this.mkBand(70, 1500, { delta: 0.05, lambda: 1.0, confirm: 2.2, refr: 0.05 }),
       this.mkBand(3000, 6500, { delta: 0.06, lambda: 1.0, confirm: 1.3, refr: 0.2 })
     ];
     // 음 판정
@@ -577,11 +579,29 @@ class OnsetProc extends AudioWorkletProcessor {
     this.RN = 16384; this.ring = new Float32Array(this.RN); this.jobs = [];
     this.PRE_GAP = 600; this.POST_SKIP = 200;
     this.hops = 0; this.peak = 0; this.blocks = 0;
+    // 클릭 흔적 학습(보정)과 빼기(측정)
+    const L0 = this.bands[0].len;
+    this.mode = 'idle';
+    this.hopDur = 128 / this.sr; this.PRE = 6; this.SLOTS = 37;   // 클릭 기준 -6홉 ~ +30홉
+    this.mtmp = new Float32Array(L0);
+    this.mRing = [];
+    for (let i = 0; i < 48; i++) this.mRing.push({ t: -1, m: new Float32Array(L0) });
+    this.mHead = 0; this.caps = [];
+    this.tpl = null; this.arr = []; this.ai = 0;
     this.port.onmessage = (e) => {
       const d = e.data;
-      if (d && d.t === 'cfg'){
+      if (!d) return;
+      if (d.t === 'cfg'){
         if (d.L) Object.assign(this.bands[0].c, d.L);
         if (d.H) Object.assign(this.bands[1].c, d.H);
+      } else if (d.t === 'mode'){
+        this.mode = d.mode;
+        if (d.mode === 'cal') this.caps = [];
+      } else if (d.t === 'tpl?'){
+        this.port.postMessage({ t: 'tpl', tpl: this.buildTpl(), n: this.caps.filter((c) => c.done).length });
+      } else if (d.t === 'play'){
+        this.arr = d.arrivals || []; this.ai = 0;
+        this.tpl = d.tpl && d.tpl.length === this.SLOTS * this.bands[0].len ? Float32Array.from(d.tpl) : null;
       }
     };
   }
@@ -596,15 +616,22 @@ class OnsetProc extends AudioWorkletProcessor {
     const N = this.N, re = this.re, im = this.im, buf = this.buf, w = this.win;
     for (let i = 0; i < N; i++){ re[i] = buf[i] * w[i]; im[i] = 0; }
     this.fft(re, im);
+    const learn = this.mode === 'cal';
     for (let k = 0; k < 2; k++){
       const b = this.bands[k], c = b.c;
       const cur = b.hist[b.head], old = b.hist[(b.head + 1) % (this.mu + 1)];
+      const so = k === 0 ? this.subSlot(tEnd) : -1;   // 클릭 흔적을 뺄 슬롯 시작 위치, 없으면 -1
+      const mt = this.mtmp;
       let flux = 0;
       for (let j = 0; j < b.len; j++){
         const kk = b.k0 + j;
         const m = Math.sqrt(re[kk] * re[kk] + im[kk] * im[kk]) * this.norm;
-        const L = Math.log(1 + this.C * m);
-        cur[j] = L;
+        if (k === 0) mt[j] = m;
+        const Lraw = Math.log(1 + this.C * m);
+        // 비교 기준(이전 프레임)은 빼지 않은 값으로 남겨서, 빼기가 지나쳤다가 돌아오는 것을 새 음으로 읽지 않게 한다.
+        let L = Lraw;
+        if (so >= 0){ const ms = m - this.tpl[so + j]; L = ms > 0 ? Math.log(1 + this.C * ms) : 0; }
+        cur[j] = Lraw;
         let p = old[j];
         if (j > 0 && old[j - 1] > p) p = old[j - 1];
         if (j < b.len - 1 && old[j + 1] > p) p = old[j + 1];
@@ -612,6 +639,7 @@ class OnsetProc extends AudioWorkletProcessor {
         if (d > 0) flux += d;
       }
       flux /= b.len;
+      if (k === 0 && learn) this.learnHop(tEnd, mt);
       b.head = (b.head + 1) % (this.mu + 1);
       const thr = c.delta + c.lambda * b.avg;
       b.avg += (flux - b.avg) * this.kAvg;
@@ -623,6 +651,7 @@ class OnsetProc extends AudioWorkletProcessor {
             this.port.postMessage({ t: 'on', k: k, time: b.cand.t, str: b.cand.max });
             b.last = b.cand.t;
             if (k === 0) this.jobs.push({ s: Math.round(b.cand.t * this.sr), time: b.cand.t });
+            else if (learn) this.startCap(b.cand.t);
           }
           b.cand = null; b.armed = false;
         }
@@ -632,6 +661,59 @@ class OnsetProc extends AudioWorkletProcessor {
         b.cand = { t: tEnd, max: flux, n: 0, thr: thr };
       }
     }
+  }
+  subSlot(tEnd){
+    if (!this.tpl) return -1;
+    const span = (this.SLOTS - this.PRE) * this.hopDur, pre = (this.PRE + 0.5) * this.hopDur;
+    while (this.ai < this.arr.length && this.arr[this.ai] + span < tEnd) this.ai++;
+    if (this.ai >= this.arr.length || this.arr[this.ai] - pre > tEnd) return -1;
+    const i = Math.round((tEnd - this.arr[this.ai]) / this.hopDur) + this.PRE;
+    return i >= 0 && i < this.SLOTS ? i * this.bands[0].len : -1;
+  }
+  learnHop(tEnd, m){
+    const slot = this.mRing[this.mHead];
+    slot.t = tEnd; slot.m.set(m);
+    this.mHead = (this.mHead + 1) % this.mRing.length;
+    for (const cap of this.caps) if (!cap.done) this.capPut(cap, tEnd, m);
+  }
+  capPut(cap, t, m){
+    const i = Math.round((t - cap.tc) / this.hopDur) + this.PRE;
+    if (i >= this.SLOTS){ cap.done = true; return; }
+    if (i < 0) return;
+    const len = m.length, o = i * len;
+    for (let j = 0; j < len; j++){ const v = m[j] - cap.base[j]; cap.mat[o + j] = v > 0 ? v : 0; }
+  }
+  startCap(tc){
+    const len = this.bands[0].len, base = new Float32Array(len);
+    let n = 0;
+    for (const s of this.mRing){
+      if (s.t < tc - 0.06 || s.t > tc - 0.025) continue;
+      for (let j = 0; j < len; j++) base[j] += s.m[j];
+      n++;
+    }
+    if (n) for (let j = 0; j < len; j++) base[j] /= n;
+    const cap = { tc: tc, base: base, mat: new Float32Array(this.SLOTS * len), done: false };
+    const recent = this.mRing.filter((s) => s.t >= tc - (this.PRE + 0.5) * this.hopDur).sort((a, b) => a.t - b.t);
+    for (const s of recent) this.capPut(cap, s.t, s.m);
+    this.caps.push(cap);
+  }
+  buildTpl(){
+    const caps = this.caps.filter((c) => c.done), len = this.bands[0].len, S = this.SLOTS;
+    const out = new Array(S * len).fill(0);
+    if (caps.length < 4) return out;
+    const p80 = new Float32Array(S * len);
+    for (let x = 0; x < S * len; x++){
+      const v = caps.map((c) => c.mat[x]).sort((a, b) => a - b);
+      p80[x] = v[Math.min(v.length - 1, Math.floor(v.length * 0.8))] * 1.3;
+    }
+    // 홉 단위 어긋남을 감안해 앞뒤 한 홉씩 최댓값으로 넓힌다.
+    for (let i = 0; i < S; i++) for (let j = 0; j < len; j++){
+      let mx = p80[i * len + j];
+      if (i > 0 && p80[(i - 1) * len + j] > mx) mx = p80[(i - 1) * len + j];
+      if (i < S - 1 && p80[(i + 1) * len + j] > mx) mx = p80[(i + 1) * len + j];
+      out[i * len + j] = mx;
+    }
+    return out;
   }
   pitch(job){
     const PN = this.PN, mask = this.RN - 1, ring = this.ring, w = this.pwin;
@@ -716,7 +798,9 @@ registerProcessor('onset', OnsetProc);
   };
   function saveS(){ store.set('jb.settings', S); }
   var calib = store.get('jb.calib', null);
-  if (!calib || typeof calib.lat !== 'number') calib = null;
+  // v2부터 클릭 흔적(tpl)을 같이 저장한다. 그 전 보정값은 다시 보정해야 한다.
+  var calibOutdated = !!(calib && calib.v !== 2);
+  if (!calib || typeof calib.lat !== 'number' || calib.v !== 2) calib = null;
   var hist = store.get('jb.history', []);
   if (!Array.isArray(hist)) hist = [];
 
@@ -726,13 +810,13 @@ registerProcessor('onset', OnsetProc);
   var level = 0, levelShown = 0, hitAt = 0, lvlTxtAt = 0;
   var trail = [];
   var lastHitRaw = null;
+  var tplWaiter = null;
   var chartData = null;
 
   // ---------- 감지 설정
   function detectCfg(){
     var s = S.sens;
     var delta = 0.12 * Math.pow(0.025 / 0.12, (s - 1) / 9);
-    if (calib && calib.boost) delta *= 1.8;
     var interval = 60 / S.bpm / S.grid;
     return { delta: delta, refr: Math.min(0.05, interval * 0.4) };
   }
@@ -804,7 +888,9 @@ registerProcessor('onset', OnsetProc);
   }
   function setStatus(msg, tone){ var s = $('#status'); s.textContent = msg; if (tone) s.dataset.tone = tone; else delete s.dataset.tone; }
   function idleStatus(){
-    setStatus(calib ? '시작을 누르면 1마디 카운트인 뒤 채점이 시작돼요.' : '처음 한 번은 지연 보정이 필요해요. 위의 보정하기를 눌러 주세요.', calib ? null : 'warn');
+    if (calib) setStatus('시작을 누르면 1마디 카운트인 뒤 채점이 시작돼요.');
+    else if (calibOutdated) setStatus('앱이 업데이트돼서 보정을 한 번 다시 해야 해요. 위의 보정하기를 눌러 주세요.', 'warn');
+    else setStatus('처음 한 번은 지연 보정이 필요해요. 위의 보정하기를 눌러 주세요.', 'warn');
   }
   function lockUI(){
     var busy = mode === 'play' || mode === 'cal';
@@ -886,6 +972,10 @@ registerProcessor('onset', OnsetProc);
       if (d.l > level) level = d.l;
       return;
     }
+    if (d.t === 'tpl'){
+      if (tplWaiter){ var tw = tplWaiter; tplWaiter = null; tw(d); }
+      return;
+    }
     if (d.t === 'pitch'){
       if (run && run.byRaw){ var po = run.byRaw.get(d.time); if (po) po.midi = d.midi; }
       if (d.time === lastHitRaw) showNote(d.midi);
@@ -904,6 +994,7 @@ registerProcessor('onset', OnsetProc);
     if (mode === 'play' || mode === 'cal') return;
     try { await ensureAudio(); } catch (e){ micError(e); return; }
     var dest = makeOut();
+    node.port.postMessage({ t: 'mode', mode: 'cal' });
     var n = 10, gap = 0.6, t0 = actx.currentTime + 0.5, clicks = [];
     for (var k = 0; k < n; k++){ beep(t0 + k * gap, false, dest); clicks.push(t0 + k * gap); }
     cal = { clicks: clicks, on: [], low: [], end: t0 + (n - 1) * gap + 0.6 };
@@ -912,8 +1003,17 @@ registerProcessor('onset', OnsetProc);
     $('#calibVal').textContent = '측정 중';
     setStatus('보정 중이에요. 6초만 조용히 두세요.');
   }
-  function finishCal(){
-    var c = cal; cal = null; mode = 'idle'; releaseOut(); keepAwake(false);
+  async function finishCal(){
+    var c = cal; cal = null; releaseOut(); keepAwake(false);
+    // 보정 동안 배운 클릭 흔적을 받아 온다.
+    var got = await new Promise(function(res){
+      tplWaiter = res;
+      node.port.postMessage({ t: 'tpl?' });
+      setTimeout(function(){ if (tplWaiter === res){ tplWaiter = null; res(null); } }, 1500);
+    });
+    node.port.postMessage({ t: 'mode', mode: 'idle' });
+    if (mode !== 'cal') return;   // 기다리는 사이 취소됨
+    mode = 'idle';
     var lats = [];
     c.clicks.forEach(function(t){
       for (var i = 0; i < c.on.length; i++){
@@ -930,16 +1030,17 @@ registerProcessor('onset', OnsetProc);
     }
     if (fail){ renderCalib(); lockUI(); setStatus(fail, 'warn'); return; }
     var med = lats[Math.floor(lats.length / 2)];
-    // 클릭이 기타 대역에서도 음으로 잡혔는지(스피커 울림 등) 센다.
+    // 클릭이 기타 대역에서도 음으로 잡혔는지(스피커 울림 등) 센다. 안내용.
     var leakHits = c.clicks.filter(function(t){ return c.low.some(function(x){ return x >= t && x <= t + 0.5; }); }).length;
-    var boost = leakHits >= 3;
-    calib = { lat: med, boost: boost, at: Date.now(), heard: lats.length, of: c.clicks.length };
+    var tpl = got && got.tpl ? got.tpl.map(function(v){ return +v.toFixed(6); }) : null;
+    calib = { v: 2, lat: med, tpl: tpl, vol: S.vol, at: Date.now(), heard: lats.length, of: c.clicks.length };
+    calibOutdated = false;
     store.set('jb.calib', calib);
     renderCalib(); applyDetect(); lockUI();
     var msg = '보정 끝: 지연 ' + Math.round(med * 1000) + 'ms (' + lats.length + '/' + c.clicks.length + '번 들림).';
-    if (boost) msg += ' 클릭 소리가 기타 음역에서도 잡혀서 감도를 자동으로 낮췄어요. 유선 이어폰을 쓰면 더 정확해요.';
+    if (leakHits >= 3) msg += ' 스피커 클릭이 기타 음역에도 섞여 들어와서, 클릭 순간엔 그만큼 빼고 들어요. 유선 이어폰이 제일 정확해요.';
     else msg += ' 이제 시작을 누르세요.';
-    setStatus(msg, boost ? 'warn' : null);
+    setStatus(msg);
   }
 
   // ---------- 측정
@@ -947,18 +1048,22 @@ registerProcessor('onset', OnsetProc);
     var spb = 60 / S.bpm, bpb = S.beats, sub = S.grid, bars = S.bars, interval = spb / sub;
     var dest = makeOut();
     var t0 = actx.currentTime + 0.4;
-    var totalBeats = bpb * (bars + 1);
+    var totalBeats = bpb * (bars + 1), arrivals = [];
     for (var k = 0; k < totalBeats; k++){
       var bar = Math.floor(k / bpb);
       if (bar >= 1 && C.isMutedBar(bar - 1, S.mute)) continue;
       beep(t0 + k * spb, k % bpb === 0, dest);
+      arrivals.push(t0 + k * spb + calib.lat);   // 클릭이 마이크에 잡힐 시각
     }
+    node.port.postMessage({ t: 'play', arrivals: arrivals, tpl: calib.tpl });
     var testStart = t0 + bpb * spb, nGrid = bars * bpb * sub;
     run = { t0: t0, spb: spb, bpb: bpb, sub: sub, bars: bars, interval: interval, testStart: testStart, nGrid: nGrid,
             gridLast: testStart + (nGrid - 1) * interval, totalBeats: totalBeats, lat: calib.lat, mute: S.mute, bpm: S.bpm, onsets: [], byRaw: new Map() };
     mode = 'play'; trail = []; renderTrail(); setReadout(null); showNote(undefined);
     lockUI(); keepAwake(true);
-    setStatus('카운트인 1마디 뒤부터 채점해요.');
+    if (calib.vol != null && Math.abs(S.vol - calib.vol) > 0.051)
+      setStatus('클릭 음량이 보정 때(' + Math.round(calib.vol * 100) + '%)와 달라요. 클릭이 음으로 잡히면 이 음량으로 다시 보정하세요.', 'warn');
+    else setStatus('카운트인 1마디 뒤부터 채점해요.');
   }
   function onPlayOnset(time){
     var t = time - run.lat;
@@ -971,6 +1076,7 @@ registerProcessor('onset', OnsetProc);
   }
   function finishRun(){
     var r = run; run = null; mode = 'idle'; releaseOut(); keepAwake(false); lockUI();
+    node.port.postMessage({ t: 'play', arrivals: [] });
     var res = C.analyze(r.onsets, r);
     if (res.insufficient){
       setStatus('인식한 음이 ' + res.n + '개뿐이라 채점을 못 했어요. 감도를 올리거나 폰을 기타 가까이 두세요.', 'warn');
@@ -987,6 +1093,7 @@ registerProcessor('onset', OnsetProc);
   }
   function cancelRun(msg){
     run = null; cal = null; mode = 'idle'; releaseOut(); keepAwake(false); lockUI(); renderCalib();
+    if (node){ node.port.postMessage({ t: 'play', arrivals: [] }); node.port.postMessage({ t: 'mode', mode: 'idle' }); }
     setStatus(msg, 'warn');
   }
 
